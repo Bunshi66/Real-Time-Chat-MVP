@@ -1,0 +1,20 @@
+# Python мусор
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Виртуальное окружение (если используешь)
+venv/
+env/
+.env
+
+# База данных (она создастся сама при запуске кода)
+*.db
+*.sqlite3
+
+# Docker
+.dockerignore
+
+# IDE настройки
+.idea/
+.vscode/
