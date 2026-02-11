@@ -3,116 +3,291 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Чат MVP</title>
+    <title>Chat Lobby MVP</title>
     <!-- Bootstrap для красоты -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
-        #chat-box { height: 400px; overflow-y: scroll; background: #f8f9fa; padding: 15px; border-radius: 5px;}
-        .message { margin-bottom: 10px; }
-        .my-msg { text-align: right; }
-        .my-msg .content { background: #dcf8c6; display: inline-block; padding: 8px 15px; border-radius: 15px; }
-        .other-msg .content { background: #fff; border: 1px solid #ddd; display: inline-block; padding: 8px 15px; border-radius: 15px; }
-        .meta { font-size: 0.8em; color: gray; margin-top: 2px;}
+        .chat-container { display: flex; height: 500px; border: 1px solid #ddd; }
+        .chat-sidebar { width: 30%; border-right: 1px solid #ddd; padding: 10px; overflow-y: scroll; }
+        .chat-main { width: 70%; display: flex; flex-direction: column; padding: 10px; }
+        .chat-history { flex-grow: 1; overflow-y: scroll; border: 1px solid #eee; margin-bottom: 10px; padding: 5px; }
+        .participant-item { padding: 5px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .status-online { color: green; font-weight: bold; font-size: 0.8em; }
+        .status-offline { color: gray; font-size: 0.8em; }
     </style>
 </head>
 <body class="bg-light">
 
 <div class="container mt-5">
-    <!-- Экран входа -->
+
+    <!-- 1. Экран Логина -->
     <div id="login-screen" class="card p-4 mx-auto" style="max-width: 400px;">
-        <h3 class="text-center">Вход в чат</h3>
-        <input type="text" id="username" class="form-control mb-2" placeholder="Ваше имя">
-        <input type="text" id="room" class="form-control mb-2" placeholder="Название комнаты">
-        <button onclick="joinChat()" class="btn btn-primary w-100">Войти</button>
+        <h3 class="text-center">Вход</h3>
+        <input type="text" id="username" class="form-control mb-2" placeholder="Ваше имя (Ник)">
+        <button onclick="loginUser()" class="btn btn-primary w-100">Войти</button>
     </div>
 
-    <!-- Экран чата (скрыт сначала) -->
-    <div id="chat-screen" style="display: none;">
+    <!-- 2. Экран Лобби (Список комнат) -->
+    <div id="lobby-screen" style="display: none;">
+        <h3>Привет, <span id="lobby-username"></span>!</h3>
         <div class="row">
-            <div class="col-md-8 offset-md-2">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h4>Комната: <span id="room-display"></span></h4>
-                    <span id="status-badge" class="badge bg-success">Online</span>
+            <div class="col-md-4">
+                <h5>Мои комнаты</h5>
+                <ul id="my-rooms-list" class="list-group mb-3">
+                    <!-- Сюда попадут комнаты -->
+                </ul>
+                <hr>
+                <h5>Создать / Войти в новую</h5>
+                <div class="input-group">
+                    <input type="text" id="new-room-name" class="form-control" placeholder="Название комнаты">
+                    <button onclick="joinRoom(document.getElementById('new-room-name').value)" class="btn btn-success">Go</button>
                 </div>
+            </div>
+            <div class="col-md-8">
+                <div class="alert alert-info">Выберите комнату слева или создайте новую.</div>
+            </div>
+        </div>
+    </div>
 
-                <div id="chat-box" class="border"></div>
+    <!-- 3. Экран Чата -->
+    <div id="chat-screen" style="display: none;">
+        <div class="d-flex justify-content-between mb-2">
+            <h4>Комната: <span id="current-room-name"></span></h4>
+            <button onclick="leaveChat()" class="btn btn-sm btn-outline-danger">Назад в Лобби</button>
+        </div>
 
-                <div class="input-group mt-3">
-                    <input type="text" id="message-input" class="form-control" placeholder="Введите сообщение...">
-                    <button onclick="sendMessage()" class="btn btn-primary">Отправить</button>
+        <div class="chat-container bg-white">
+            <!-- Список участников (Sidebar) -->
+            <div class="chat-sidebar">
+                <h6>Участники</h6>
+                <div id="participants-list">
+                    <!-- JS заполнит это -->
+                </div>
+            </div>
+
+            <!-- История сообщений -->
+            <div class="chat-main">
+                <div id="chat-history" class="chat-history"></div>
+                <div class="input-group">
+                    <input type="text" id="message-input" class="form-control" placeholder="Сообщение...">
+                    <button onclick="sendMessage()" class="btn btn-primary">Send</button>
                 </div>
             </div>
         </div>
     </div>
+
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 <script>
     const socket = io();
     let currentUser = '';
     let currentRoom = '';
 
-    function joinChat() {
-        currentUser = document.getElementById('username').value;
-        currentRoom = document.getElementById('room').value;
-
-        if(!currentUser || !currentRoom) return alert("Введите имя и комнату");
-
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('chat-screen').style.display = 'block';
-        document.getElementById('room-display').innerText = currentRoom;
-
-        socket.emit('join', {username: currentUser, room: currentRoom});
+    // --- ЛОГИН ---
+    function loginUser() {
+        const username = document.getElementById('username').value;
+        if (!username) return alert("Введите имя!");
+        currentUser = username;
+        // Отправляем на сервер
+        socket.emit('login', {username: currentUser});
     }
+
+    socket.on('login_response', (data) => {
+        if (data.success) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('lobby-screen').style.display = 'block';
+            document.getElementById('lobby-username').innerText = currentUser;
+
+            const list = document.getElementById('my-rooms-list');
+            list.innerHTML = '';
+
+            // Если комнат нет, можно добавить подсказку
+            if(data.rooms.length === 0) {
+                 list.innerHTML = '<li class="list-group-item">Нет активных комнат. Введите название ниже и нажмите Join.</li>';
+            }
+
+            data.rooms.forEach(room => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item list-group-item-action';
+                li.innerText = room.name;
+                li.style.cursor = 'pointer';
+                li.onclick = () => joinRoom(room.name);
+                list.appendChild(li);
+            });
+        }
+    });
+
+    // --- ВХОД В КОМНАТУ ---
+    function joinRoom(roomNameInput) {
+        // Если аргумент не передан (нажали кнопку Join внизу), берем из инпута
+        const roomName = roomNameInput || document.getElementById('room-input').value;
+
+        if (!roomName) return alert("Введите название комнаты!");
+        currentRoom = roomName;
+
+        document.getElementById('lobby-screen').style.display = 'none';
+        document.getElementById('chat-screen').style.display = 'block';
+        document.getElementById('current-room-name').innerText = currentRoom;
+
+        // Чистим чат перед входом в новую комнату
+        document.getElementById('chat-history').innerHTML = '';
+        document.getElementById('participants-list').innerHTML = '';
+
+        socket.emit('join_room_event', {username: currentUser, room: currentRoom});
+    }
+
+    function leaveChat() {
+        // Отправляем событие выхода
+        socket.emit('leave_room_event', {username: currentUser, room: currentRoom});
+
+        document.getElementById('chat-screen').style.display = 'none';
+        document.getElementById('lobby-screen').style.display = 'block';
+        currentRoom = '';
+    }
+
+    // --- ЧАТ ---
 
     function sendMessage() {
-        const text = document.getElementById('message-input').value;
+        const input = document.getElementById('message-input');
+        const text = input.value;
         if(text) {
-            socket.emit('send_message', {username: currentUser, room: currentRoom, message: text});
-            document.getElementById('message-input').value = '';
+            // !!! ИСПРАВЛЕНИЕ: имя события должно совпадать с бэкендом (send_message_event)
+            socket.emit('send_message_event', {
+                username: currentUser,
+                room: currentRoom,
+                message: text
+            });
+            input.value = '';
         }
     }
 
-    // Приём истории
-    socket.on('load_history', (history) => {
-        const box = document.getElementById('chat-box');
-        box.innerHTML = '';
-        history.forEach(msg => appendMessage(msg));
-        box.scrollTop = box.scrollHeight;
+    // Обработка нажатия Enter
+    document.getElementById('message-input').addEventListener("keypress", function(event) {
+        if (event.key === "Enter") {
+            sendMessage();
+        }
     });
 
-    // Приём нового сообщения
+    // 1. Пришла история
+    socket.on('load_history', (history) => {
+        const box = document.getElementById('chat-history');
+        box.innerHTML = ''; // Очистка на всякий случай
+        history.forEach(msg => appendMessage(msg));
+        scrollToBottom();
+    });
+
+    // 2. Пришло новое сообщение
     socket.on('receive_message', (data) => {
         appendMessage(data);
-        const box = document.getElementById('chat-box');
-        box.scrollTop = box.scrollHeight;
+        scrollToBottom();
     });
 
-    // Уведомление о статусе (простой alert или лог для MVP)
-    socket.on('status_update', (data) => {
-        if(data.username !== currentUser) {
-            console.log(`${data.username} теперь ${data.status}`);
-        }
+    // --- УЧАСТНИКИ И СТАТУСЫ ---
+
+    // 3. Полный список при входе
+    socket.on('room_info', (data) => {
+        const list = document.getElementById('participants-list');
+        list.innerHTML = '';
+        data.participants.forEach(p => updateParticipantUI(p));
     });
 
-    // Функция отрисовки
-    function appendMessage(data) {
-        const box = document.getElementById('chat-box');
-        const isMe = data.sender === currentUser;
+    // 4. Кто-то зашел (стал online)
+    socket.on('user_joined', (data) => {
+        updateParticipantUI(data); // Обновляем статус в списке
+        appendSystemMessage(`${data.username} вошел в чат`);
+    });
+
+    // 5. Кто-то вышел (стал offline)
+    socket.on('user_disconnected', (data) => {
+        // data приходит в формате: {username: '...', last_seen: '...'}
+        // Добавляем статус 'offline' вручную для UI функции
+        updateParticipantUI({
+            username: data.username,
+            status: 'offline',
+            last_seen: data.last_seen
+        });
+        appendSystemMessage(`${data.username} отключился`);
+    });
+
+    // Кто-то вышел в лобби (покинул комнату)
+    socket.on('user_left_room', (data) => {
+        removeParticipantUI(data.username);
+        appendSystemMessage(`${data.username} покинул комнату`);
+    });
+
+
+    // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+
+    function updateParticipantUI(user) {
+        const list = document.getElementById('participants-list');
+        // Удаляем старую запись, если есть
+        const existing = document.getElementById(`user-${user.username}`);
+        if (existing) existing.remove();
+
         const div = document.createElement('div');
-        div.className = `message ${isMe ? 'my-msg' : 'other-msg'}`;
+        div.id = `user-${user.username}`;
+        div.className = 'participant-item p-2 border-bottom'; // Стили Bootstrap для красоты
+
+        let statusHtml = '';
+        if (user.status === 'online') {
+            statusHtml = `<span style="color:green">● Online</span>`;
+        } else {
+            statusHtml = `<span style="color:gray; font-size:0.8em">Был(а): ${user.last_seen}</span>`;
+        }
+
         div.innerHTML = `
-            <div><strong>${isMe ? 'Вы' : data.sender}</strong></div>
-            <div class="content">${data.text}</div>
-            <div class="meta">${data.time}</div>
+            <strong>${user.username}</strong><br>
+            ${statusHtml}
         `;
-        box.appendChild(div);
+        list.appendChild(div);
     }
 
-    // Отправка статуса offline при закрытии вкладки
-    window.onbeforeunload = function() {
-        socket.emit('disconnect_request', {username: currentUser});
-    };
+    function removeParticipantUI(username) {
+        const existing = document.getElementById(`user-${username}`);
+        if (existing) existing.remove();
+    }
+
+    function appendMessage(data) {
+        const box = document.getElementById('chat-history');
+        const isMe = data.sender === currentUser;
+
+        const wrapper = document.createElement('div');
+        wrapper.style.textAlign = isMe ? 'right' : 'left';
+        wrapper.style.marginBottom = '10px';
+
+        const content = document.createElement('div');
+        content.style.display = 'inline-block';
+        content.style.padding = '8px 12px';
+        content.style.borderRadius = '15px';
+        content.style.background = isMe ? '#007bff' : '#f1f0f0'; // Синий для меня, серый для других
+        content.style.color = isMe ? '#fff' : '#000';
+        content.style.maxWidth = '70%';
+        content.style.textAlign = 'left';
+
+        content.innerHTML = `
+            <div style="font-size: 0.75em; opacity: 0.8; margin-bottom: 2px;">${data.sender} ${data.time}</div>
+            <div>${data.text}</div>
+        `;
+
+        wrapper.appendChild(content);
+        box.appendChild(wrapper);
+    }
+
+    function appendSystemMessage(text) {
+        const box = document.getElementById('chat-history');
+        const div = document.createElement('div');
+        div.className = "text-center text-muted small my-2";
+        div.innerText = text;
+        box.appendChild(div);
+        scrollToBottom();
+    }
+
+    function scrollToBottom() {
+        const box = document.getElementById('chat-history');
+        box.scrollTop = box.scrollHeight;
+    }
 </script>
 
 </body>
