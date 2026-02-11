@@ -1,0 +1,19 @@
+version: 1
+project: chat-project    # Твое название проекта
+
+# 1. Заказываем диск у хостинга
+volumes:
+    chat-storage:        # Придумали имя для диска
+        type: hdd
+        size: 1Gib       # 1 Гигабайт (минимальный размер)
+
+containers:
+    real-time-chat-mvp:  # Твое название контейнера
+        build: .
+        ports:
+            - "5000:5000"
+
+        # 2. Подключаем этот диск внутрь контейнера
+        volumes:
+            - name: chat-storage     # Берем диск, который заказали выше
+              mountPath: /app/data   # Монтируем его туда, где скрипт ждет папку data

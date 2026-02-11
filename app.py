@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///chat.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data/chat.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
