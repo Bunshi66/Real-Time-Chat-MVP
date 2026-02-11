@@ -54,8 +54,6 @@ def index():
 @socketio.on('login')
 def on_login(data):
     username = data['username']
-
-    # 1. Сохраняем юзера в сессию сокета, чтобы знать его при дисконнекте
     session['username'] = username
 
     user = User.query.filter_by(username=username).first()
@@ -66,6 +64,7 @@ def on_login(data):
     user.status = 'online'
     db.session.commit()
 
+    # Возвращаем список комнат, где пользователь уже является участником
     my_rooms = [{'name': r.name} for r in user.rooms]
     emit('login_response', {'success': True, 'rooms': my_rooms})
 
@@ -75,50 +74,79 @@ def on_join_room(data):
     username = data['username']
     room_name = data['room']
 
-    # Обновляем сессию на всякий случай
     session['room'] = room_name
     session['username'] = username
 
     user = User.query.filter_by(username=username).first()
     room = Room.query.filter_by(name=room_name).first()
 
+    # 1. Создаем комнату, если нет
     if not room:
         room = Room(name=room_name)
         db.session.add(room)
+        db.session.commit()  # Важно сохранить комнату, чтобы у нее появился ID
 
-    if room not in user.rooms:
-        user.rooms.append(room)
+    # 2. Добавляем пользователя в участники комнаты (Навсегда)
+    # Если юзера еще нет в списке users этой комнаты, добавляем
+    if user not in room.users:
+        room.users.append(user)
 
+    # Обновляем статус текущего юзера
     user.status = 'online'
-    db.session.commit()
+    db.session.commit()  # Сохраняем все связи
 
+    # Подключаем сокет к каналу
     join_room(room_name)
 
-    # Загрузка истории
+    # 3. Загружаем историю
     messages = Message.query.filter_by(room_name=room_name).order_by(Message.timestamp.asc()).limit(50).all()
     history = [{'sender': m.sender, 'text': m.text, 'time': m.timestamp.strftime('%H:%M')} for m in messages]
     emit('load_history', history)
 
-    # Участники
+    # 4. Формируем ПОЛНЫЙ список участников (и Online, и Offline)
+    # Благодаря связи room.users мы получим всех, кто когда-либо заходил
     participants = []
     for u in room.users:
-        last_seen_str = u.last_seen.strftime('%H:%M') if u.last_seen else ""
+        last_seen_str = u.last_seen.strftime('%d.%m %H:%M') if u.last_seen else "Давно"
         participants.append({
             'username': u.username,
-            'status': u.status,
+            'status': u.status,  # 'online' или 'offline' из БД
             'last_seen': last_seen_str
         })
+
+    # Отправляем список ТОЛЬКО тому, кто зашел (чтобы отрисовать интерфейс)
     emit('room_info', {'participants': participants})
 
-    # Уведомление о входе
-    emit('user_joined', {
+    # 5. Уведомляем ОСТАЛЬНЫХ, что статус этого юзера изменился на Online
+    # Используем broadcast=True (по умолчанию для to=...), но skip_sid не нужен,
+    # так как мы хотим, чтобы у отправителя тоже обновился статус (хотя room_info это уже сделал)
+    emit('user_status_change', {
         'username': username,
         'status': 'online',
-        'last_seen': datetime.utcnow().strftime('%H:%M')
-    }, to=room_name)
+        'last_seen': None
+    }, to=room_name, include_self=False)
 
 
-# --- [ИСПРАВЛЕНИЕ 1] Обработчик отправки сообщения ---
+@socketio.on('disconnect')
+def on_disconnect():
+    username = session.get('username')
+    if username:
+        user = User.query.filter_by(username=username).first()
+        if user:
+            user.status = 'offline'
+            user.last_seen = datetime.utcnow()
+            db.session.commit()
+
+            last_seen_str = user.last_seen.strftime('%d.%m %H:%M')
+
+            # Уведомляем ВСЕ комнаты, в которых состоит юзер, что он вышел
+            for r in user.rooms:
+                emit('user_status_change', {
+                    'username': username,
+                    'status': 'offline',
+                    'last_seen': last_seen_str
+                }, to=r.name)
+
 @socketio.on('send_message_event')
 def handle_message(data):
     username = data['username']

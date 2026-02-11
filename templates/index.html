@@ -90,7 +90,6 @@
         const username = document.getElementById('username').value;
         if (!username) return alert("Введите имя!");
         currentUser = username;
-        // Отправляем на сервер
         socket.emit('login', {username: currentUser});
     }
 
@@ -100,14 +99,9 @@
             document.getElementById('lobby-screen').style.display = 'block';
             document.getElementById('lobby-username').innerText = currentUser;
 
+            // Рендер списка комнат
             const list = document.getElementById('my-rooms-list');
             list.innerHTML = '';
-
-            // Если комнат нет, можно добавить подсказку
-            if(data.rooms.length === 0) {
-                 list.innerHTML = '<li class="list-group-item">Нет активных комнат. Введите название ниже и нажмите Join.</li>';
-            }
-
             data.rooms.forEach(room => {
                 const li = document.createElement('li');
                 li.className = 'list-group-item list-group-item-action';
@@ -121,17 +115,17 @@
 
     // --- ВХОД В КОМНАТУ ---
     function joinRoom(roomNameInput) {
-        // Если аргумент не передан (нажали кнопку Join внизу), берем из инпута
         const roomName = roomNameInput || document.getElementById('room-input').value;
-
         if (!roomName) return alert("Введите название комнаты!");
+
         currentRoom = roomName;
 
+        // Переключение экранов
         document.getElementById('lobby-screen').style.display = 'none';
         document.getElementById('chat-screen').style.display = 'block';
         document.getElementById('current-room-name').innerText = currentRoom;
 
-        // Чистим чат перед входом в новую комнату
+        // Очистка
         document.getElementById('chat-history').innerHTML = '';
         document.getElementById('participants-list').innerHTML = '';
 
@@ -139,46 +133,37 @@
     }
 
     function leaveChat() {
-        // Отправляем событие выхода
         socket.emit('leave_room_event', {username: currentUser, room: currentRoom});
-
         document.getElementById('chat-screen').style.display = 'none';
         document.getElementById('lobby-screen').style.display = 'block';
         currentRoom = '';
     }
 
-    // --- ЧАТ ---
-
+    // --- СООБЩЕНИЯ ---
     function sendMessage() {
         const input = document.getElementById('message-input');
-        const text = input.value;
-        if(text) {
-            // !!! ИСПРАВЛЕНИЕ: имя события должно совпадать с бэкендом (send_message_event)
+        if(input.value) {
             socket.emit('send_message_event', {
                 username: currentUser,
                 room: currentRoom,
-                message: text
+                message: input.value
             });
             input.value = '';
         }
     }
 
-    // Обработка нажатия Enter
+    // Enter для отправки
     document.getElementById('message-input').addEventListener("keypress", function(event) {
-        if (event.key === "Enter") {
-            sendMessage();
-        }
+        if (event.key === "Enter") sendMessage();
     });
 
-    // 1. Пришла история
     socket.on('load_history', (history) => {
         const box = document.getElementById('chat-history');
-        box.innerHTML = ''; // Очистка на всякий случай
+        box.innerHTML = '';
         history.forEach(msg => appendMessage(msg));
         scrollToBottom();
     });
 
-    // 2. Пришло новое сообщение
     socket.on('receive_message', (data) => {
         appendMessage(data);
         scrollToBottom();
@@ -186,67 +171,51 @@
 
     // --- УЧАСТНИКИ И СТАТУСЫ ---
 
-    // 3. Полный список при входе
+    // 1. При загрузке комнаты получаем ПОЛНЫЙ список (и онлайн, и оффлайн)
     socket.on('room_info', (data) => {
         const list = document.getElementById('participants-list');
-        list.innerHTML = '';
-        data.participants.forEach(p => updateParticipantUI(p));
+        list.innerHTML = ''; // Чистим старое
+        // Сортируем: сначала Online, потом Offline
+        const sorted = data.participants.sort((a, b) => (a.status === 'online' ? -1 : 1));
+        sorted.forEach(p => createOrUpdateParticipant(p));
     });
 
-    // 4. Кто-то зашел (стал online)
-    socket.on('user_joined', (data) => {
-        updateParticipantUI(data); // Обновляем статус в списке
-        appendSystemMessage(`${data.username} вошел в чат`);
-    });
+    // 2. Единое событие изменения статуса (кто-то вошел или вышел)
+    socket.on('user_status_change', (data) => {
+        createOrUpdateParticipant(data);
 
-    // 5. Кто-то вышел (стал offline)
-    socket.on('user_disconnected', (data) => {
-        // data приходит в формате: {username: '...', last_seen: '...'}
-        // Добавляем статус 'offline' вручную для UI функции
-        updateParticipantUI({
-            username: data.username,
-            status: 'offline',
-            last_seen: data.last_seen
-        });
-        appendSystemMessage(`${data.username} отключился`);
-    });
-
-    // Кто-то вышел в лобби (покинул комнату)
-    socket.on('user_left_room', (data) => {
-        removeParticipantUI(data.username);
-        appendSystemMessage(`${data.username} покинул комнату`);
+        // Опционально: системное сообщение в чат
+        const statusText = data.status === 'online' ? 'в сети' : 'вышел';
+        appendSystemMessage(`${data.username} теперь ${statusText}`);
     });
 
 
-    // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+    // --- UI ФУНКЦИИ ---
 
-    function updateParticipantUI(user) {
+    function createOrUpdateParticipant(user) {
         const list = document.getElementById('participants-list');
-        // Удаляем старую запись, если есть
-        const existing = document.getElementById(`user-${user.username}`);
-        if (existing) existing.remove();
+        let el = document.getElementById(`user-${user.username}`);
 
-        const div = document.createElement('div');
-        div.id = `user-${user.username}`;
-        div.className = 'participant-item p-2 border-bottom'; // Стили Bootstrap для красоты
-
-        let statusHtml = '';
-        if (user.status === 'online') {
-            statusHtml = `<span style="color:green">● Online</span>`;
-        } else {
-            statusHtml = `<span style="color:gray; font-size:0.8em">Был(а): ${user.last_seen}</span>`;
+        // Если элемента нет - создаем
+        if (!el) {
+            el = document.createElement('div');
+            el.id = `user-${user.username}`;
+            el.className = 'participant-item p-2 border-bottom';
+            list.appendChild(el);
         }
 
-        div.innerHTML = `
-            <strong>${user.username}</strong><br>
-            ${statusHtml}
-        `;
-        list.appendChild(div);
-    }
+        // Формируем HTML статуса
+        let statusHtml = '';
+        if (user.status === 'online') {
+            statusHtml = `<span style="color:#28a745; font-weight:bold;">● Online</span>`;
+        } else {
+            statusHtml = `<span style="color:#6c757d; font-size:0.85em;">Last seen: ${user.last_seen || 'N/A'}</span>`;
+        }
 
-    function removeParticipantUI(username) {
-        const existing = document.getElementById(`user-${username}`);
-        if (existing) existing.remove();
+        el.innerHTML = `
+            <div><strong>${user.username}</strong></div>
+            <div>${statusHtml}</div>
+        `;
     }
 
     function appendMessage(data) {
@@ -255,23 +224,23 @@
 
         const wrapper = document.createElement('div');
         wrapper.style.textAlign = isMe ? 'right' : 'left';
-        wrapper.style.marginBottom = '10px';
+        wrapper.style.marginBottom = '8px';
 
-        const content = document.createElement('div');
-        content.style.display = 'inline-block';
-        content.style.padding = '8px 12px';
-        content.style.borderRadius = '15px';
-        content.style.background = isMe ? '#007bff' : '#f1f0f0'; // Синий для меня, серый для других
-        content.style.color = isMe ? '#fff' : '#000';
-        content.style.maxWidth = '70%';
-        content.style.textAlign = 'left';
+        const bubble = document.createElement('div');
+        bubble.style.display = 'inline-block';
+        bubble.style.padding = '8px 12px';
+        bubble.style.borderRadius = '12px';
+        bubble.style.maxWidth = '75%';
+        bubble.style.background = isMe ? '#007bff' : '#f1f1f1';
+        bubble.style.color = isMe ? '#fff' : '#000';
+        bubble.style.textAlign = 'left';
 
-        content.innerHTML = `
-            <div style="font-size: 0.75em; opacity: 0.8; margin-bottom: 2px;">${data.sender} ${data.time}</div>
+        bubble.innerHTML = `
+            <div style="font-size: 0.7em; opacity: 0.7; margin-bottom: 2px;">${data.sender} • ${data.time}</div>
             <div>${data.text}</div>
         `;
 
-        wrapper.appendChild(content);
+        wrapper.appendChild(bubble);
         box.appendChild(wrapper);
     }
 
@@ -279,6 +248,7 @@
         const box = document.getElementById('chat-history');
         const div = document.createElement('div');
         div.className = "text-center text-muted small my-2";
+        div.style.fontSize = "0.8em";
         div.innerText = text;
         box.appendChild(div);
         scrollToBottom();
