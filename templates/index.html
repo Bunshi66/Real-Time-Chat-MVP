@@ -99,19 +99,31 @@
             document.getElementById('lobby-screen').style.display = 'block';
             document.getElementById('lobby-username').innerText = currentUser;
 
-            // Рендер списка комнат
-            const list = document.getElementById('my-rooms-list');
-            list.innerHTML = '';
-            data.rooms.forEach(room => {
-                const li = document.createElement('li');
-                li.className = 'list-group-item list-group-item-action';
-                li.innerText = room.name;
-                li.style.cursor = 'pointer';
-                li.onclick = () => joinRoom(room.name);
-                list.appendChild(li);
-            });
+            renderRoomList(data.rooms); // Используем общую функцию
         }
     });
+
+    // --- ИСПРАВЛЕНИЕ 2: Обработка обновления списка комнат ---
+    socket.on('update_room_list', (data) => {
+        renderRoomList(data.rooms);
+    });
+
+    function renderRoomList(rooms) {
+        const list = document.getElementById('my-rooms-list');
+        list.innerHTML = '';
+        if (rooms.length === 0) {
+            list.innerHTML = '<li class="list-group-item text-muted">Нет активных чатов</li>';
+            return;
+        }
+        rooms.forEach(room => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+            li.innerText = room.name;
+            li.style.cursor = 'pointer';
+            li.onclick = () => joinRoom(room.name);
+            list.appendChild(li);
+        });
+    }
 
     // --- ВХОД В КОМНАТУ ---
     function joinRoom(roomNameInput) {
@@ -120,12 +132,11 @@
 
         currentRoom = roomName;
 
-        // Переключение экранов
         document.getElementById('lobby-screen').style.display = 'none';
         document.getElementById('chat-screen').style.display = 'block';
         document.getElementById('current-room-name').innerText = currentRoom;
 
-        // Очистка
+        // Очистка UI перед входом
         document.getElementById('chat-history').innerHTML = '';
         document.getElementById('participants-list').innerHTML = '';
 
@@ -133,6 +144,7 @@
     }
 
     function leaveChat() {
+        // Мы не отключаемся от сокета, просто меняем UI и "выходим" из логической комнаты
         socket.emit('leave_room_event', {username: currentUser, room: currentRoom});
         document.getElementById('chat-screen').style.display = 'none';
         document.getElementById('lobby-screen').style.display = 'block';
@@ -152,7 +164,6 @@
         }
     }
 
-    // Enter для отправки
     document.getElementById('message-input').addEventListener("keypress", function(event) {
         if (event.key === "Enter") sendMessage();
     });
@@ -171,26 +182,19 @@
 
     // --- УЧАСТНИКИ И СТАТУСЫ ---
 
-    // 1. При загрузке комнаты получаем ПОЛНЫЙ список (и онлайн, и оффлайн)
     socket.on('room_info', (data) => {
         const list = document.getElementById('participants-list');
-        list.innerHTML = ''; // Чистим старое
-        // Сортируем: сначала Online, потом Offline
+        list.innerHTML = '';
+        // Сортируем: Онлайн выше
         const sorted = data.participants.sort((a, b) => (a.status === 'online' ? -1 : 1));
         sorted.forEach(p => createOrUpdateParticipant(p));
     });
 
-    // 2. Единое событие изменения статуса (кто-то вошел или вышел)
+    // --- ИСПРАВЛЕНИЕ 1: Надежное обновление статуса ---
     socket.on('user_status_change', (data) => {
+        console.log("Status change received:", data); // Для отладки в консоли браузера
         createOrUpdateParticipant(data);
-
-        // Опционально: системное сообщение в чат
-        const statusText = data.status === 'online' ? 'в сети' : 'вышел';
-        appendSystemMessage(`${data.username} теперь ${statusText}`);
     });
-
-
-    // --- UI ФУНКЦИИ ---
 
     function createOrUpdateParticipant(user) {
         const list = document.getElementById('participants-list');
@@ -204,19 +208,24 @@
             list.appendChild(el);
         }
 
-        // Формируем HTML статуса
+        // Логика цвета и текста
         let statusHtml = '';
         if (user.status === 'online') {
-            statusHtml = `<span style="color:#28a745; font-weight:bold;">● Online</span>`;
+            statusHtml = `<span class="badge bg-success">Online</span>`;
         } else {
-            statusHtml = `<span style="color:#6c757d; font-size:0.85em;">Last seen: ${user.last_seen || 'N/A'}</span>`;
+            statusHtml = `<span class="text-muted small">Last seen: ${user.last_seen || 'N/A'}</span>`;
         }
 
+        // Обновляем внутренности (не удаляя сам элемент, чтобы не моргало)
         el.innerHTML = `
-            <div><strong>${user.username}</strong></div>
-            <div>${statusHtml}</div>
+            <div class="d-flex justify-content-between align-items-center">
+                <strong>${user.username}</strong>
+                ${statusHtml}
+            </div>
         `;
     }
+
+    // --- ВСПОМОГАТЕЛЬНЫЕ ---
 
     function appendMessage(data) {
         const box = document.getElementById('chat-history');
@@ -242,16 +251,6 @@
 
         wrapper.appendChild(bubble);
         box.appendChild(wrapper);
-    }
-
-    function appendSystemMessage(text) {
-        const box = document.getElementById('chat-history');
-        const div = document.createElement('div');
-        div.className = "text-center text-muted small my-2";
-        div.style.fontSize = "0.8em";
-        div.innerText = text;
-        box.appendChild(div);
-        scrollToBottom();
     }
 
     function scrollToBottom() {
