@@ -5,8 +5,12 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
+
+basedir = os.path.abspath(os.path.dirname(__file__))
+
 app.config['SECRET_KEY'] = 'secret!'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data/chat.db'
+db_path = os.path.join(basedir, 'data', 'chat.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -46,11 +50,18 @@ class Message(db.Model):
 
 
 with app.app_context():
-    if not os.path.exists('data'):
-        os.makedirs('data')
+    if not os.path.exists(os.path.join(basedir, 'data')):
+        os.makedirs(os.path.join(basedir, 'data'), exist_ok=True)
+
+    try:
+        test_file = os.path.join(basedir, 'data', 'perm_test.txt')
+        with open(test_file, 'w') as f:
+            f.write('write test')
+        print(f"--- SUCCESS: Write permission to {test_file} OK ---")
+    except Exception as e:
+        print(f"--- ERROR: Cannot write to data folder: {e} ---")
+
     db.create_all()
-
-
 @app.route('/')
 def index():
     return render_template('index.html')
