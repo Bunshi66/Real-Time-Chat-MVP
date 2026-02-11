@@ -6,5 +6,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./data:/app/data
+      - chat_db_storage:/app/data
     restart: always
+
+volumes:
+  chat_db_storage:
