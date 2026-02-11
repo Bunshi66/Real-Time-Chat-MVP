@@ -204,23 +204,33 @@
         if (!el) {
             el = document.createElement('div');
             el.id = `user-${user.username}`;
+            // Добавляем отступы (my-1) и рамку снизу
             el.className = 'participant-item p-2 border-bottom';
             list.appendChild(el);
         }
 
-        // Логика цвета и текста
+        // Логика HTML для статуса
         let statusHtml = '';
         if (user.status === 'online') {
-            statusHtml = `<span class="badge bg-success">Online</span>`;
+            // Зеленый бейдж
+            statusHtml = `<span class="badge bg-success" style="font-weight: normal;">Online</span>`;
         } else {
-            statusHtml = `<span class="text-muted small">Last seen: ${user.last_seen || 'N/A'}</span>`;
+            // Серая надпись
+            statusHtml = `<span class="text-muted" style="font-size: 0.85em;">
+                Last seen: ${user.last_seen || 'N/A'}
+            </span>`;
         }
 
-        // Обновляем внутренности (не удаляя сам элемент, чтобы не моргало)
+        // ВЕРТИКАЛЬНАЯ ВЕРСТКА:
+        // div для имени, div для статуса. Никакого наложения.
         el.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center">
-                <strong>${user.username}</strong>
-                ${statusHtml}
+            <div class="d-flex flex-column">
+                <div class="fw-bold text-truncate" style="max-width: 100%;" title="${user.username}">
+                    ${user.username}
+                </div>
+                <div class="mt-1">
+                    ${statusHtml}
+                </div>
             </div>
         `;
     }

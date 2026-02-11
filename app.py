@@ -2,7 +2,7 @@ import os
 from flask import Flask, render_template, request, session
 from flask_socketio import SocketIO, join_room, leave_room, emit, disconnect
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -12,6 +12,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 # allow_unsafe_werkzeug нужен для dev-сервера, если используешь последние версии
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
+
+def get_msk_time():
+    return datetime.utcnow() + timedelta(hours=3)
 
 # --- МОДЕЛИ (Без изменений) ---
 user_rooms = db.Table('user_rooms',
@@ -24,7 +27,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     status = db.Column(db.String(20), default='offline')
-    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
+    last_seen = db.Column(db.DateTime, default=get_msk_time)
     rooms = db.relationship('Room', secondary=user_rooms, lazy='subquery',
                             backref=db.backref('users', lazy=True))
 
@@ -39,7 +42,7 @@ class Message(db.Model):
     room_name = db.Column(db.String(50), nullable=False)
     sender = db.Column(db.String(80), nullable=False)
     text = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=get_msk_time)
 
 
 with app.app_context():
@@ -51,6 +54,7 @@ with app.app_context():
 @app.route('/')
 def index():
     return render_template('index.html')
+
 
 
 # --- СОБЫТИЯ ---
